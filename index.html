@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Drain Video Converter</title>
+
+<style>
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:#f3f4f6;
+  color:#111827;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+
+.container{
+  max-width:650px;
+  margin:auto;
+  padding:25px 16px 45px;
+}
+
+header{
+  text-align:center;
+  padding:10px 0 20px;
+}
+
+h1{
+  font-size:34px;
+  margin:5px 0;
+}
+
+header p{
+  color:#6b7280;
+  margin:0;
+  font-size:17px;
+}
+
+.card{
+  background:white;
+  border-radius:20px;
+  padding:20px;
+  margin:14px 0;
+  box-shadow:0 2px 12px rgba(0,0,0,.08);
+}
+
+.pick{
+  display:block;
+  text-align:center;
+  background:#111827;
+  color:white;
+  border-radius:15px;
+  padding:18px;
+  font-weight:800;
+  font-size:18px;
+  cursor:pointer;
+}
+
+.pick input{
+  display:none;
+}
+
+#filename{
+  margin-top:12px;
+  color:#6b7280;
+  word-break:break-word;
+}
+
+label.setting{
+  display:block;
+  margin:18px 0;
+  font-weight:600;
+}
+
+select{
+  width:100%;
+  margin-top:7px;
+  padding:13px;
+  border:1px solid #d1d5db;
+  border-radius:11px;
+  background:white;
+  font-size:16px;
+}
+
+button{
+  width:100%;
+  border:0;
+  border-radius:15px;
+  padding:17px;
+  font-size:18px;
+  font-weight:800;
+  background:#2563eb;
+  color:white;
+}
+
+button:disabled{
+  background:#9ca3af;
+}
+
+#status{
+  margin-top:15px;
+  color:#4b5563;
+  min-height:25px;
+}
+
+.progress{
+  height:11px;
+  background:#e5e7eb;
+  border-radius:99px;
+  overflow:hidden;
+  margin-top:14px;
+  display:none;
+}
+
+#bar{
+  height:100%;
+  width:0%;
+  background:#2563eb;
+}
+
+.result{
+  margin-top:12px;
+  padding:15px;
+  background:#f3f4f6;
+  border-radius:13px;
+}
+
+.download{
+  display:block;
+  margin-top:12px;
+  text-align:center;
+  padding:14px;
+  border-radius:12px;
+  background:#111827;
+  color:white;
+  text-decoration:none;
+  font-weight:800;
+}
+
+.hidden{
+  display:none;
+}
+
+footer{
+  text-align:center;
+  color:#9ca3af;
+  font-size:12px;
+  margin-top:22px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<header>
+  <h1>Drain Video Converter</h1>
+  <p>VEVOR AVI → Customer MP4</p>
+</header>
+
+<div class="card">
+
+<label class="pick">
+  <input id="file" type="file" accept=".avi,video/avi,video/*">
+  Choose AVI Video
+</label>
+
+<div id="filename">
+  No video selected
+</div>
+
+<label class="setting">
+  Video quality
+
+  <select id="quality">
+    <option value="23">Customer — Best Balance</option>
+    <option value="20">Higher Quality — Larger File</option>
+    <option value="26">Smaller File</option>
+  </select>
+</label>
+
+<button id="convert" disabled>
+  Convert for Customer
+</button>
+
+<div class="progress">
+  <div id="bar"></div>
+</div>
+
+<div id="status">
+  Select an AVI video to begin.
+</div>
+
+</div>
+
+<div id="result" class="card hidden">
+
+<h2>✓ MP4 Ready</h2>
+
+<div id="resultInfo"></div>
+
+<a id="download" class="download">
+  Save / Share MP4
+</a>
+
+</div>
+
+<footer>
+  Conversion happens on this device. Your video is not uploaded to a conversion service.
+</footer>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+
+<script>
+
+const { FFmpeg } = window.FFmpeg;
+const { fetchFile, toBlobURL } = window.FFmpegUtil;
+
+const fileInput = document.getElementById("file");
+const filename = document.getElementById("filename");
+const convertButton = document.getElementById("convert");
+const statusText = document.getElementById("status");
+const progressBox = document.querySelector(".progress");
+const progressBar = document.getElementById("bar");
+const resultBox = document.getElementById("result");
+const resultInfo = document.getElementById("resultInfo");
+const downloadLink = document.getElementById("download");
+const quality = document.getElementById("quality");
+
+let selectedFile = null;
+let ffmpeg = null;
+let loaded = false;
+
+function formatBytes(bytes){
+  if(bytes < 1024 * 1024){
+    return Math.round(bytes / 1024) + " KB";
+  }
+
+  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+}
+
+function safeName(name){
+  return name
+    .replace(/\.[^.]+$/,"")
+    .replace(/[^a-zA-Z0-9_-]+/g,"_")
+    .slice(0,70);
+}
+
+fileInput.addEventListener("change",function(){
+
+  selectedFile = fileInput.files[0] || null;
+
+  resultBox.classList.add("hidden");
+
+  if(selectedFile){
+
+    filename.textContent =
+      selectedFile.name +
+      " • " +
+      formatBytes(selectedFile.size);
+
+    convertButton.disabled = false;
+
+    statusText.textContent =
+      "Ready. Tap Convert for Customer.";
+
+  }else{
+
+    filename.textContent =
+      "No video selected";
+
+    convertButton.disabled = true;
+
+  }
+
+});
+
+async function loadConverter(){
+
+  if(loaded) return;
+
+  statusText.textContent =
+    "Preparing converter. The first time may take a minute.";
+
+  ffmpeg = new FFmpeg();
+
+  ffmpeg.on("progress",function(data){
+
+    const percent =
+      Math.round(data.progress * 100);
+
+    progressBox.style.display = "block";
+    progressBar.style.width = percent + "%";
+
+    statusText.textContent =
+      "Converting… " + percent + "%";
+
+  });
+
+  const base =
+    "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd";
+
+  await ffmpeg.load({
+
+    coreURL:
+      await toBlobURL(
+        base + "/ffmpeg-core.js",
+        "text/javascript"
+      ),
+
+    wasmURL:
+      await toBlobURL(
+        base + "/ffmpeg-core.wasm",
+        "application/wasm"
+      )
+
+  });
+
+  loaded = true;
+}
+
+convertButton.addEventListener("click",async function(){
+
+  if(!selectedFile) return;
+
+  convertButton.disabled = true;
+  resultBox.classList.add("hidden");
+
+  progressBox.style.display = "block";
+  progressBar.style.width = "0%";
+
+  try{
+
+    await loadConverter();
+
+    const timestamp = Date.now();
+
+    const inputName =
+      "vevor_" + timestamp + ".avi";
+
+    const outputName =
+      safeName(selectedFile.name) +
+      "_Customer.mp4";
+
+    statusText.textContent =
+      "Reading AVI…";
+
+    await ffmpeg.writeFile(
+      inputName,
+      await fetchFile(selectedFile)
+    );
+
+    statusText.textContent =
+      "Converting video…";
+
+    await ffmpeg.exec([
+
+      "-i",
+      inputName,
+
+      "-map",
+      "0:v:0",
+
+      "-map",
+      "0:a:0?",
+
+      "-c:v",
+      "libx264",
+
+      "-preset",
+      "veryfast",
+
+      "-crf",
+      quality.value,
+
+      "-pix_fmt",
+      "yuv420p",
+
+      "-c:a",
+      "aac",
+
+      "-b:a",
+      "128k",
+
+      "-movflags",
+      "+faststart",
+
+      outputName
+
+    ]);
+
+    const data =
+      await ffmpeg.readFile(outputName);
+
+    const blob =
+      new Blob(
+        [data.buffer],
+        {type:"video/mp4"}
+      );
+
+    const url =
+      URL.createObjectURL(blob);
+
+    downloadLink.href = url;
+
+    downloadLink.download = outputName;
+
+    resultInfo.textContent =
+      outputName +
+      " • " +
+      formatBytes(blob.size);
+
+    resultBox.classList.remove("hidden");
+
+    progressBar.style.width = "100%";
+
+    statusText.textContent =
+      "Finished! Your MP4 is ready.";
+
+    await ffmpeg.deleteFile(inputName)
+      .catch(()=>{});
+
+    await ffmpeg.deleteFile(outputName)
+      .catch(()=>{});
+
+  }catch(error){
+
+    console.error(error);
+
+    statusText.textContent =
+      "Conversion failed.";
+
+    alert(
+      "Conversion failed. Try one AVI at a time. If it keeps failing, we will adjust the converter for your VEVOR camera."
+    );
+
+  }finally{
+
+    convertButton.disabled =
+      !selectedFile;
+
+  }
+
+});
+
+</script>
+
+</body>
+</html>
