@@ -53,7 +53,7 @@ body {
 
 .header h1 {
   margin: 0;
-  font-size: clamp(34px, 8vw, 58px);
+  font-size: clamp(34px, 8vw, 54px);
   line-height: 1.05;
   letter-spacing: -1.5px;
 }
@@ -61,7 +61,7 @@ body {
 .header p {
   margin: 14px 0 0;
   color: #667085;
-  font-size: clamp(20px, 5vw, 30px);
+  font-size: clamp(19px, 5vw, 27px);
 }
 
 .card {
@@ -93,7 +93,7 @@ body {
   padding: 20px;
 }
 
-#file {
+#fileInput {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -107,7 +107,7 @@ body {
   min-height: 58px;
   margin-top: 18px;
   color: #4b5563;
-  font-size: 20px;
+  font-size: 19px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -116,7 +116,7 @@ body {
   display: block;
   margin-top: 20px;
   margin-bottom: 10px;
-  font-size: 21px;
+  font-size: 20px;
   font-weight: 700;
 }
 
@@ -128,11 +128,15 @@ select {
   border-radius: 18px;
   background: white;
   color: #111827;
-  font-size: 20px;
-  appearance: auto;
+  font-size: 19px;
 }
 
-button.action {
+button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.convert-button {
   width: 100%;
   min-height: 68px;
   margin-top: 22px;
@@ -145,7 +149,7 @@ button.action {
   padding: 12px 18px;
 }
 
-button.action:disabled {
+.convert-button:disabled {
   background: #9ca3af;
 }
 
@@ -169,7 +173,7 @@ button.action:disabled {
   min-height: 48px;
   margin-top: 20px;
   color: #4b5563;
-  font-size: 20px;
+  font-size: 19px;
   line-height: 1.45;
 }
 
@@ -184,16 +188,17 @@ button.action:disabled {
 .result-title {
   font-size: 23px;
   font-weight: 700;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .result-name {
   color: #4b5563;
   font-size: 18px;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
-.share-button {
+.save-button {
   width: 100%;
   min-height: 60px;
   margin-top: 16px;
@@ -211,14 +216,14 @@ button.action:disabled {
   border-radius: 20px;
   background: #f8fafc;
   color: #667085;
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1.5;
 }
 
 .footer {
   text-align: center;
   color: #9ca3af;
-  font-size: 16px;
+  font-size: 15px;
   margin-top: 28px;
 }
 
@@ -240,23 +245,28 @@ button.action:disabled {
   <main class="card">
 
     <div class="file-area">
+
       <div class="file-button">
         Choose AVI Video
       </div>
 
       <input
-        id="file"
+        id="fileInput"
         type="file"
         accept="*/*"
         aria-label="Choose AVI video"
       >
+
     </div>
 
     <div id="fileInfo" class="file-info">
       No AVI selected.
     </div>
 
-    <label class="label" for="quality">
+    <label
+      class="label"
+      for="quality"
+    >
       Video quality
     </label>
 
@@ -275,32 +285,44 @@ button.action:disabled {
     </select>
 
     <button
-      id="convert"
-      class="action"
+      id="convertButton"
+      class="convert-button"
       disabled
     >
       Convert for Customer
     </button>
 
     <div class="progress-wrap">
-      <div id="progress" class="progress-bar"></div>
+      <div
+        id="progressBar"
+        class="progress-bar"
+      ></div>
     </div>
 
-    <div id="status" class="status">
-      Video converter is ready.
+    <div
+      id="status"
+      class="status"
+    >
+      Select an AVI video to begin.
     </div>
 
-    <div id="result" class="result">
+    <div
+      id="result"
+      class="result"
+    >
 
       <div class="result-title">
         MP4 conversion complete
       </div>
 
-      <div id="resultName" class="result-name"></div>
+      <div
+        id="resultName"
+        class="result-name"
+      ></div>
 
       <button
-        id="share"
-        class="share-button"
+        id="saveButton"
+        class="save-button"
       >
         Save / Share MP4
       </button>
@@ -308,7 +330,7 @@ button.action:disabled {
     </div>
 
     <div class="notice">
-      Your video is processed on this device.
+      Your video is converted directly on this device.
       The AVI is not uploaded to a conversion service.
     </div>
 
@@ -321,66 +343,67 @@ button.action:disabled {
 </div>
 
 
+<!--
+  IMPORTANT:
+
+  FFmpeg itself is loaded normally with a script tag.
+
+  We are NOT dynamically importing ffmpeg.js.
+  This avoids the Safari/Webpack "Automatic publicPath"
+  problem that caused the previous version to fail.
+-->
+
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+
+<script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+
+
 <script>
 "use strict";
 
+
 /*
 ============================================================
-DRAIN VIDEO CONVERTER
-============================================================
-
-FFmpeg browser setup:
-
-@ffmpeg/ffmpeg 0.12.6
-@ffmpeg/core   0.12.3
-
-This deliberately uses the UMD browser loading strategy
-demonstrated by the ffmpeg.wasm project.
-
-The UMD ffmpeg.js file normally tries to discover its
-814.ffmpeg.js worker automatically. When ffmpeg.js itself
-has been loaded from a Blob URL, that automatic path can
-point at the wrong origin/path.
-
-We therefore patch that one path so FFmpeg uses the
-explicit workerLoadURL supplied below.
-
-This is important for GitHub Pages + iPhone Safari.
+CONFIGURATION
 ============================================================
 */
-
-const FFMPEG_VERSION = "0.12.6";
-const CORE_VERSION = "0.12.3";
-
-const FFMPEG_BASE =
-  "https://unpkg.com/@ffmpeg/ffmpeg@" +
-  FFMPEG_VERSION +
-  "/dist/umd";
 
 const CORE_BASE =
-  "https://unpkg.com/@ffmpeg/core@" +
-  CORE_VERSION +
-  "/dist/umd";
-
-const UTIL_URL =
-  "https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js";
+  "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
 
 
 /*
 ============================================================
-DOM
+PAGE ELEMENTS
 ============================================================
 */
 
-const fileInput = document.getElementById("file");
-const fileInfo = document.getElementById("fileInfo");
-const qualitySelect = document.getElementById("quality");
-const convertButton = document.getElementById("convert");
-const statusText = document.getElementById("status");
-const progressBar = document.getElementById("progress");
-const resultBox = document.getElementById("result");
-const resultName = document.getElementById("resultName");
-const shareButton = document.getElementById("share");
+const fileInput =
+  document.getElementById("fileInput");
+
+const fileInfo =
+  document.getElementById("fileInfo");
+
+const qualitySelect =
+  document.getElementById("quality");
+
+const convertButton =
+  document.getElementById("convertButton");
+
+const progressBar =
+  document.getElementById("progressBar");
+
+const statusText =
+  document.getElementById("status");
+
+const resultBox =
+  document.getElementById("result");
+
+const resultName =
+  document.getElementById("resultName");
+
+const saveButton =
+  document.getElementById("saveButton");
 
 
 /*
@@ -392,11 +415,12 @@ STATE
 let selectedFile = null;
 
 let ffmpeg = null;
-let ffmpegLoaded = false;
-let ffmpegLoading = false;
+
+let ffmpegLoading = null;
 
 let outputFile = null;
-let outputObjectURL = null;
+
+let outputURL = null;
 
 
 /*
@@ -405,158 +429,158 @@ HELPERS
 ============================================================
 */
 
-function setStatus(message) {
-  statusText.textContent = message;
+function setStatus(text) {
+  statusText.textContent = text;
 }
 
+
 function setProgress(value) {
-  let percent = Number(value);
+
+  let percent =
+    Number(value);
 
   if (!Number.isFinite(percent)) {
     percent = 0;
   }
 
-  percent = Math.max(0, Math.min(1, percent));
+  percent =
+    Math.max(
+      0,
+      Math.min(1, percent)
+    );
 
   progressBar.style.width =
     Math.round(percent * 100) + "%";
 }
 
+
 function formatBytes(bytes) {
+
   if (!Number.isFinite(bytes) || bytes <= 0) {
     return "0 B";
   }
 
-  const units = ["B", "KB", "MB", "GB"];
+  const units = [
+    "B",
+    "KB",
+    "MB",
+    "GB"
+  ];
 
-  let index = 0;
   let value = bytes;
+  let index = 0;
 
-  while (value >= 1024 && index < units.length - 1) {
+  while (
+    value >= 1024 &&
+    index < units.length - 1
+  ) {
+
     value /= 1024;
     index++;
   }
 
-  return value.toFixed(index === 0 ? 0 : 1) +
+  return (
+    value.toFixed(
+      index === 0 ? 0 : 1
+    ) +
     " " +
-    units[index];
+    units[index]
+  );
 }
+
 
 function removeExtension(filename) {
-  return filename.replace(/\.[^/.]+$/, "");
+
+  return filename.replace(
+    /\.[^/.]+$/,
+    ""
+  );
 }
 
-function makeOutputName(filename) {
-  return removeExtension(filename) + "_Customer.mp4";
+
+function isAVI(file) {
+
+  return (
+    file &&
+    /\.avi$/i.test(file.name)
+  );
 }
 
-function revokeOutputURL() {
-  if (outputObjectURL) {
-    URL.revokeObjectURL(outputObjectURL);
-    outputObjectURL = null;
+
+function outputFilename(filename) {
+
+  return (
+    removeExtension(filename) +
+    "_Customer.mp4"
+  );
+}
+
+
+function clearOutput() {
+
+  if (outputURL) {
+
+    URL.revokeObjectURL(
+      outputURL
+    );
+
+    outputURL = null;
   }
-}
-
-function clearResult() {
-  revokeOutputURL();
 
   outputFile = null;
 
-  resultBox.style.display = "none";
-  resultName.textContent = "";
-}
+  resultBox.style.display =
+    "none";
 
-function isAVI(file) {
-  return !!file &&
-    /\.avi$/i.test(file.name);
+  resultName.textContent = "";
 }
 
 
 /*
 ============================================================
-BLOB URL HELPERS
+BLOB URL HELPER
+============================================================
+
+This is the normal ffmpeg.wasm loading method documented
+by the project.
+
+There is NO patched ffmpeg.js here.
 ============================================================
 */
 
-async function toBlobURL(url, mimeType) {
+async function toBlobURL(
+  url,
+  mimeType
+) {
 
-  const response = await fetch(url, {
-    mode: "cors",
-    cache: "force-cache"
-  });
+  const response =
+    await fetch(
+      url,
+      {
+        mode: "cors",
+        cache: "force-cache"
+      }
+    );
 
   if (!response.ok) {
+
     throw new Error(
-      "Unable to download FFmpeg component: " +
-      response.status
+      "Unable to download FFmpeg component (" +
+      response.status +
+      ")."
     );
   }
 
-  const blob = await response.blob();
+  const blob =
+    await response.blob();
 
   return URL.createObjectURL(
-    new Blob([blob], {
-      type: mimeType
-    })
-  );
-}
-
-
-async function toPatchedBlobURL(url, mimeType) {
-
-  const response = await fetch(url, {
-    mode: "cors",
-    cache: "force-cache"
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      "Unable to download FFmpeg library: " +
-      response.status
-    );
-  }
-
-  let source = await response.text();
-
-  /*
-    This is the browser-loading workaround used in the
-    ffmpeg.wasm UMD browser example.
-
-    The UMD bundle normally contains:
-
-      new URL(e.p+e.u(814),e.b)
-
-    We replace it with the worker URL supplied to
-    ffmpeg.load().
-  */
-
-  const original =
-    "new URL(e.p+e.u(814),e.b)";
-
-  const replacement =
-    "r.workerLoadURL";
-
-  if (!source.includes(original)) {
-
-    /*
-      If this exact UMD build changes internally,
-      don't silently continue with a broken worker.
-    */
-
-    throw new Error(
-      "FFmpeg browser worker patch was not found."
-    );
-  }
-
-  source = source.replace(
-    original,
-    replacement
-  );
-
-  return URL.createObjectURL(
-    new Blob([source], {
-      type: mimeType
-    })
+    new Blob(
+      [blob],
+      {
+        type: mimeType
+      }
+    )
   );
 }
 
@@ -567,73 +591,101 @@ LOAD FFmpeg
 ============================================================
 */
 
-async function loadFFmpeg() {
+async function ensureFFmpeg() {
 
-  if (ffmpegLoaded) {
-    return;
+  if (
+    ffmpeg &&
+    ffmpeg.loaded
+  ) {
+
+    return ffmpeg;
   }
+
 
   if (ffmpegLoading) {
-    return;
+
+    return ffmpegLoading;
   }
 
-  ffmpegLoading = true;
-  convertButton.disabled = true;
 
-  setProgress(0);
-  setStatus(
-    "Loading video converter…"
-  );
+  ffmpegLoading =
+    (async () => {
 
-  let ffmpegBlobURL = null;
-  let workerURL = null;
-  let coreURL = null;
-  let wasmURL = null;
-
-  try {
-
-    /*
-      First load the patched UMD FFmpeg wrapper.
-    */
-
-    ffmpegBlobURL =
-      await toPatchedBlobURL(
-        FFMPEG_BASE + "/ffmpeg.js",
-        "text/javascript"
+      setStatus(
+        "Loading video converter…"
       );
 
-    /*
-      Dynamic import makes FFmpegWASM available on window.
-    */
+      setProgress(0);
 
-    await import(ffmpegBlobURL);
 
-    if (
-      !window.FFmpegWASM ||
-      !window.FFmpegWASM.FFmpeg
-    ) {
-      throw new Error(
-        "FFmpeg JavaScript library did not initialize."
+      /*
+        The script tag above creates:
+
+          window.FFmpegWASM
+
+        The utility script creates:
+
+          window.FFmpegUtil
+      */
+
+      if (
+        !window.FFmpegWASM ||
+        !window.FFmpegWASM.FFmpeg
+      ) {
+
+        throw new Error(
+          "FFmpeg JavaScript library did not load."
+        );
+      }
+
+
+      if (
+        !window.FFmpegUtil ||
+        !window.FFmpegUtil.toBlobURL
+      ) {
+
+        throw new Error(
+          "FFmpeg utility library did not load."
+        );
+      }
+
+
+      const FFmpegClass =
+        window.FFmpegWASM.FFmpeg;
+
+      const toBlobURL =
+        window.FFmpegUtil.toBlobURL;
+
+
+      ffmpeg =
+        new FFmpegClass();
+
+
+      /*
+        FFmpeg progress.
+      */
+
+      ffmpeg.on(
+        "progress",
+        ({ progress }) => {
+
+          if (
+            Number.isFinite(progress)
+          ) {
+
+            setProgress(
+              progress
+            );
+          }
+
+        }
       );
-    }
-
-    /*
-      Create FFmpeg instance.
-    */
-
-    const FFmpegClass =
-      window.FFmpegWASM.FFmpeg;
-
-    ffmpeg = new FFmpegClass();
 
 
-    /*
-      Optional FFmpeg logging.
-      We keep it out of the visible interface because
-      FFmpeg can generate a large amount of log output.
-    */
-
-    if (typeof ffmpeg.on === "function") {
+      /*
+        FFmpeg log is kept in the browser console,
+        not displayed to the customer.
+      */
 
       ffmpeg.on(
         "log",
@@ -647,132 +699,72 @@ async function loadFFmpeg() {
         }
       );
 
-      ffmpeg.on(
-        "progress",
-        ({ progress }) => {
 
-          if (
-            Number.isFinite(progress) &&
-            progress >= 0 &&
-            progress <= 1
-          ) {
-            setProgress(progress);
-          }
-
-        }
-      );
-    }
-
-
-    /*
-      Download the three components needed by the
-      single-threaded browser build:
-
-      1. 814.ffmpeg.js
-      2. ffmpeg-core.js
-      3. ffmpeg-core.wasm
-    */
-
-    setStatus(
-      "Downloading video converter engine…"
-    );
-
-    workerURL =
-      await toBlobURL(
-        FFMPEG_BASE + "/814.ffmpeg.js",
-        "text/javascript"
-      );
-
-    setStatus(
-      "Loading video converter engine…"
-    );
-
-    coreURL =
-      await toBlobURL(
-        CORE_BASE + "/ffmpeg-core.js",
-        "text/javascript"
-      );
-
-    wasmURL =
-      await toBlobURL(
-        CORE_BASE + "/ffmpeg-core.wasm",
-        "application/wasm"
+      setStatus(
+        "Downloading video converter engine…"
       );
 
 
-    /*
-      IMPORTANT:
+      /*
+        Single-threaded core.
 
-      workerLoadURL is used here.
+        This is deliberate because it does NOT require
+        SharedArrayBuffer or special COOP/COEP headers.
+      */
 
-      We intentionally do NOT use classWorkerURL.
+      await ffmpeg.load({
 
-      The patched UMD browser build expects the
-      814.ffmpeg.js worker to be supplied through
-      workerLoadURL.
-    */
+        coreURL:
+          await toBlobURL(
+            CORE_BASE +
+            "/ffmpeg-core.js",
+            "text/javascript"
+          ),
 
-    await ffmpeg.load({
+        wasmURL:
+          await toBlobURL(
+            CORE_BASE +
+            "/ffmpeg-core.wasm",
+            "application/wasm"
+          )
 
-      workerLoadURL:
-        workerURL,
-
-      coreURL:
-        coreURL,
-
-      wasmURL:
-        wasmURL
-
-    });
+      });
 
 
-    ffmpegLoaded = true;
+      setProgress(0);
 
-    setProgress(0);
+      setStatus(
+        "Converter ready."
+      );
 
-    setStatus(
-      "Converter ready."
-    );
 
-    if (selectedFile) {
-      convertButton.disabled = false;
-    }
+      return ffmpeg;
+
+    })();
+
+
+  try {
+
+    return await ffmpegLoading;
 
   } catch (error) {
 
-    console.error(
-      "FFmpeg loading failed:",
-      error
-    );
+    ffmpegLoading = null;
 
     ffmpeg = null;
-    ffmpegLoaded = false;
+
+    console.error(
+      "FFmpeg loading error:",
+      error
+    );
 
     setProgress(0);
 
     setStatus(
-      "Converter could not start. " +
-      "Please refresh the page and try again."
+      "Converter could not start."
     );
 
-    alert(
-      "Video converter could not start.\n\n" +
-      "Please refresh this page and try again.\n\n" +
-      "Technical detail: " +
-      (error && error.message
-        ? error.message
-        : String(error))
-    );
-
-  } finally {
-
-    ffmpegLoading = false;
-
-    /*
-      Keep the Blob URLs alive while FFmpeg is using them.
-      They are intentionally not revoked here.
-    */
-
+    throw error;
   }
 }
 
@@ -791,24 +783,33 @@ function handleFileSelection() {
       ? fileInput.files[0]
       : null;
 
-  clearResult();
+
+  clearOutput();
 
   selectedFile = null;
+
+  convertButton.disabled =
+    true;
+
 
   if (!file) {
 
     fileInfo.textContent =
       "No AVI selected.";
 
-    convertButton.disabled = true;
+    setStatus(
+      "Select an AVI video to begin."
+    );
 
     return;
   }
 
 
   /*
-    iOS can sometimes report unusual MIME types for AVI.
-    We therefore validate by filename, not MIME type.
+    We check the filename instead of MIME type.
+
+    iPhone Files can report an empty or unusual MIME type
+    for AVI files.
   */
 
   if (!isAVI(file)) {
@@ -816,10 +817,12 @@ function handleFileSelection() {
     fileInfo.textContent =
       "Please choose an AVI video.";
 
-    convertButton.disabled = true;
+    setStatus(
+      "That file is not an AVI video."
+    );
 
     alert(
-      "Please choose an AVI file."
+      "Please choose an AVI video."
     );
 
     return;
@@ -828,57 +831,75 @@ function handleFileSelection() {
 
   selectedFile = file;
 
+
   fileInfo.textContent =
     file.name +
     " • " +
     formatBytes(file.size);
 
 
-  if (ffmpegLoaded) {
+  setStatus(
+    "AVI selected. Preparing converter…"
+  );
 
-    convertButton.disabled = false;
 
-    setStatus(
-      "AVI selected. Tap Convert for Customer."
-    );
+  /*
+    Start loading FFmpeg after the user selects
+    a file.
 
-  } else {
+    This avoids downloading ~30 MB unnecessarily
+    when somebody only opens the page.
+  */
 
-    convertButton.disabled = true;
+  ensureFFmpeg()
+    .then(() => {
 
-    setStatus(
-      "AVI selected. Preparing converter…"
-    );
+      if (selectedFile) {
 
-    /*
-      Start loading immediately so the user doesn't
-      have to press another button.
-    */
+        convertButton.disabled =
+          false;
 
-    loadFFmpeg();
-  }
+        setStatus(
+          "Ready. Tap Convert for Customer."
+        );
+      }
+
+    })
+    .catch((error) => {
+
+      console.error(error);
+
+      alert(
+        "The video converter could not start.\n\n" +
+        "Please refresh the page and try again."
+      );
+
+    });
 }
 
 
 /*
-  Clearing the value allows the user to select the exact
-  same AVI again and still trigger the iPhone change event.
+============================================================
+IPHONE FILE INPUT
+============================================================
 */
 
 fileInput.addEventListener(
   "click",
   () => {
+
+    /*
+      Allows selecting the exact same AVI again.
+    */
+
     fileInput.value = "";
+
   }
 );
 
-fileInput.addEventListener(
-  "change",
-  handleFileSelection
-);
 
 fileInput.addEventListener(
-  "input",
+  "change",
   handleFileSelection
 );
 
@@ -900,6 +921,7 @@ async function convertVideo() {
     return;
   }
 
+
   if (!isAVI(selectedFile)) {
 
     alert(
@@ -910,83 +932,31 @@ async function convertVideo() {
   }
 
 
-  /*
-    Make absolutely sure FFmpeg is loaded.
-  */
+  convertButton.disabled =
+    true;
 
-  if (!ffmpegLoaded) {
+  qualitySelect.disabled =
+    true;
 
-    setStatus(
-      "Starting video converter…"
-    );
-
-    await loadFFmpeg();
-
-    if (!ffmpegLoaded) {
-      return;
-    }
-  }
+  fileInput.disabled =
+    true;
 
 
-  convertButton.disabled = true;
-  qualitySelect.disabled = true;
-  fileInput.disabled = true;
-
-  clearResult();
+  clearOutput();
 
   setProgress(0);
-
-  setStatus(
-    "Preparing AVI…"
-  );
-
-
-  const inputName =
-    "input.avi";
-
-  const outputName =
-    "output.mp4";
 
 
   try {
 
-    /*
-      fetchFile comes from @ffmpeg/util.
-      We load it directly here if it has not already
-      been loaded.
-    */
+    const ff =
+      await ensureFFmpeg();
 
-    if (
-      !window.FFmpegUtil ||
-      !window.FFmpegUtil.fetchFile
-    ) {
 
-      const utilScript =
-        document.createElement("script");
+    if (!window.FFmpegUtil) {
 
-      utilScript.src =
-        UTIL_URL;
-
-      utilScript.async = false;
-
-      document.head.appendChild(
-        utilScript
-      );
-
-      await new Promise(
-        (resolve, reject) => {
-
-          utilScript.onload =
-            resolve;
-
-          utilScript.onerror =
-            () => reject(
-              new Error(
-                "FFmpeg utility library failed to load."
-              )
-            );
-
-        }
+      throw new Error(
+        "FFmpeg utilities are unavailable."
       );
     }
 
@@ -994,7 +964,10 @@ async function convertVideo() {
     const fetchFile =
       window.FFmpegUtil.fetchFile;
 
-    if (typeof fetchFile !== "function") {
+
+    if (
+      typeof fetchFile !== "function"
+    ) {
 
       throw new Error(
         "FFmpeg file utility is unavailable."
@@ -1002,98 +975,93 @@ async function convertVideo() {
     }
 
 
-    /*
-      Put the user's AVI into FFmpeg's in-browser
-      virtual filesystem.
-    */
+    const inputName =
+      "input.avi";
+
+    const outputName =
+      "output.mp4";
+
 
     setStatus(
       "Loading AVI into converter…"
     );
 
-    const inputData =
-      await fetchFile(selectedFile);
 
-    await ffmpeg.writeFile(
+    const inputData =
+      await fetchFile(
+        selectedFile
+      );
+
+
+    await ff.writeFile(
       inputName,
       inputData
     );
 
 
-    /*
-      Quality selection.
-
-      CRF 20 = higher quality / larger
-      CRF 23 = balanced
-      CRF 26 = smaller / lower quality
-    */
-
     const crf =
-      Number(qualitySelect.value) || 23;
-
-
-    /*
-      H.264 + AAC + yuv420p gives broad compatibility
-      with iPhone, Android, Windows and customer TVs.
-
-      Optional audio stream is handled with '?' so
-      silent camera recordings still convert.
-    */
-
-    const argumentsList = [
-
-      "-i",
-      inputName,
-
-      "-map",
-      "0:v:0",
-
-      "-map",
-      "0:a:0?",
-
-      "-c:v",
-      "libx264",
-
-      "-preset",
-      "veryfast",
-
-      "-crf",
-      String(crf),
-
-      "-pix_fmt",
-      "yuv420p",
-
-      "-c:a",
-      "aac",
-
-      "-b:a",
-      "128k",
-
-      "-movflags",
-      "+faststart",
-
-      "-avoid_negative_ts",
-      "make_zero",
-
-      outputName
-    ];
+      Number(
+        qualitySelect.value
+      ) || 23;
 
 
     setStatus(
       "Converting AVI to MP4…"
     );
 
+
     setProgress(0);
 
 
     /*
-      Execute FFmpeg.
+      H.264 + AAC.
+
+      yuv420p provides broad compatibility with
+      iPhone, Android, Windows and televisions.
+
+      The optional audio map means the conversion
+      still works if a camera recording has no audio.
     */
 
     const exitCode =
-      await ffmpeg.exec(
-        argumentsList
-      );
+      await ff.exec([
+
+        "-i",
+        inputName,
+
+        "-map",
+        "0:v:0",
+
+        "-map",
+        "0:a:0?",
+
+        "-c:v",
+        "libx264",
+
+        "-preset",
+        "veryfast",
+
+        "-crf",
+        String(crf),
+
+        "-pix_fmt",
+        "yuv420p",
+
+        "-c:a",
+        "aac",
+
+        "-b:a",
+        "128k",
+
+        "-movflags",
+        "+faststart",
+
+        "-avoid_negative_ts",
+        "make_zero",
+
+        outputName
+
+      ]);
 
 
     if (
@@ -1113,35 +1081,32 @@ async function convertVideo() {
     );
 
 
-    /*
-      Read finished MP4 out of FFmpeg's
-      in-browser filesystem.
-    */
-
-    const outputData =
-      await ffmpeg.readFile(
+    const data =
+      await ff.readFile(
         outputName
       );
 
 
     if (
-      !outputData ||
-      !outputData.length
+      !data ||
+      data.length === 0
     ) {
 
       throw new Error(
-        "FFmpeg produced an empty MP4."
+        "No MP4 file was produced."
       );
     }
 
 
-    /*
-      Create a normal File object for iPhone sharing.
-    */
+    const bytes =
+      data instanceof Uint8Array
+        ? data
+        : new Uint8Array(data);
 
-    const outputBlob =
+
+    const blob =
       new Blob(
-        [outputData.buffer],
+        [bytes],
         {
           type: "video/mp4"
         }
@@ -1150,8 +1115,8 @@ async function convertVideo() {
 
     outputFile =
       new File(
-        [outputBlob],
-        makeOutputName(
+        [blob],
+        outputFilename(
           selectedFile.name
         ),
         {
@@ -1160,7 +1125,7 @@ async function convertVideo() {
       );
 
 
-    outputObjectURL =
+    outputURL =
       URL.createObjectURL(
         outputFile
       );
@@ -1169,11 +1134,14 @@ async function convertVideo() {
     resultName.textContent =
       outputFile.name +
       " • " +
-      formatBytes(outputFile.size);
+      formatBytes(
+        outputFile.size
+      );
 
 
     resultBox.style.display =
       "block";
+
 
     setProgress(1);
 
@@ -1183,72 +1151,36 @@ async function convertVideo() {
 
 
     /*
-      Remove temporary FFmpeg files.
-      The output File above is independent of them.
+      Clean FFmpeg's temporary files.
     */
 
     try {
-      await ffmpeg.deleteFile(
+
+      await ff.deleteFile(
         inputName
       );
+
     } catch (e) {
+
       console.log(
-        "Input cleanup skipped:",
+        "Input cleanup skipped.",
         e
       );
     }
+
 
     try {
-      await ffmpeg.deleteFile(
+
+      await ff.deleteFile(
         outputName
       );
+
     } catch (e) {
+
       console.log(
-        "Output cleanup skipped:",
+        "Output cleanup skipped.",
         e
       );
-    }
-
-
-    /*
-      Automatically offer the iPhone share sheet.
-      If Safari doesn't allow direct sharing, the user
-      can press Save / Share MP4 below.
-    */
-
-    if (
-      navigator.share &&
-      navigator.canShare
-    ) {
-
-      try {
-
-        if (
-          navigator.canShare({
-            files: [outputFile]
-          })
-        ) {
-
-          await navigator.share({
-            files: [outputFile],
-            title:
-              outputFile.name
-          });
-
-        }
-
-      } catch (shareError) {
-
-        /*
-          User may have dismissed the share sheet.
-          That is not a conversion failure.
-        */
-
-        console.log(
-          "Share sheet dismissed:",
-          shareError
-        );
-      }
     }
 
 
@@ -1267,16 +1199,18 @@ async function convertVideo() {
 
     alert(
       "Conversion failed.\n\n" +
-      (error && error.message
-        ? error.message
-        : String(error))
+      (
+        error &&
+        error.message
+          ? error.message
+          : String(error)
+      )
     );
 
   } finally {
 
     convertButton.disabled =
-      !selectedFile ||
-      !ffmpegLoaded;
+      !selectedFile;
 
     qualitySelect.disabled =
       false;
@@ -1299,18 +1233,19 @@ SAVE / SHARE
 ============================================================
 */
 
-shareButton.addEventListener(
+saveButton.addEventListener(
   "click",
   async () => {
 
     if (!outputFile) {
-
       return;
     }
 
 
     /*
-      Preferred iPhone method.
+      iPhone's native share sheet is the preferred
+      method because it lets the customer choose
+      Save to Files, Messages, Mail, AirDrop, etc.
     */
 
     if (
@@ -1320,28 +1255,34 @@ shareButton.addEventListener(
 
       try {
 
+        const shareData = {
+          files: [outputFile],
+          title: outputFile.name
+        };
+
+
         if (
-          navigator.canShare({
-            files: [outputFile]
-          })
+          navigator.canShare(shareData)
         ) {
 
-          await navigator.share({
-            files: [outputFile],
-            title:
-              outputFile.name
-          });
+          await navigator.share(
+            shareData
+          );
 
           return;
         }
 
       } catch (error) {
 
+        /*
+          Closing the share sheet is not an error.
+        */
+
         if (
           error &&
-          error.name ===
-          "AbortError"
+          error.name === "AbortError"
         ) {
+
           return;
         }
 
@@ -1354,19 +1295,16 @@ shareButton.addEventListener(
 
 
     /*
-      Fallback.
-
-      Safari will open the MP4. The user can then
-      use Safari's Share button to save/send it.
+      Fallback for browsers without file sharing.
     */
 
-    if (outputObjectURL) {
+    if (outputURL) {
 
       const link =
         document.createElement("a");
 
       link.href =
-        outputObjectURL;
+        outputURL;
 
       link.download =
         outputFile.name;
@@ -1381,31 +1319,10 @@ shareButton.addEventListener(
       link.click();
 
       link.remove();
-
     }
+
   }
 );
-
-
-/*
-============================================================
-STARTUP
-============================================================
-*/
-
-setStatus(
-  "Starting video converter…"
-);
-
-
-/*
-  Begin loading FFmpeg as soon as the page opens.
-
-  This means by the time the user chooses an AVI,
-  the 30-ish MB engine may already be ready.
-*/
-
-loadFFmpeg();
 
 </script>
 
