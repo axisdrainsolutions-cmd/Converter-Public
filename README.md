@@ -191,6 +191,14 @@ Design decisions worth knowing:
   another customer's report would be wrong. Drafts are text-only — several 720p
   JPEGs would blow the `localStorage` quota, and re-capturing a still is easy
   while retyping an address is not.
+- **The badge is a real cut-out, not a pasted square.** The supplied logo came
+  on a white background. Only white *connected to the outer edge* is made
+  transparent (via connected-component labelling), so the clock face, the chrome
+  highlights and the sky in the photo panel survive. It sits on the dark header
+  band with no white box around it. Page 1 carries the badge; continuation pages
+  get a slim text band, so the artwork is embedded once.
+- **The company name is real text as well as artwork**, so the PDF stays
+  searchable and selectable rather than hiding its identity inside an image.
 - **The report never claims a licence.** It says "Insured"; it does not say
   "Licensed", because the Florida CFC is still in progress. There is a test that
   fails if the word ever appears.
