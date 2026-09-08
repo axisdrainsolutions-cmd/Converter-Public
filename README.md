@@ -49,6 +49,8 @@ Blob URL is involved.
 index.html            markup only
 src/main.js           UI state machine, file picking, sharing, diagnostics
 src/converter.js      the only file that touches ffmpeg.wasm
+src/report.js         findings vocabulary, frame capture, PDF generation
+src/report-ui.js      the report step's DOM, drafts and preview video
 src/style.css         mobile-first styling
 scripts/
   copy-ffmpeg-core.mjs   copies the pinned core out of node_modules into public/
@@ -167,6 +169,35 @@ entirely, which is why it is 15× faster than anything else on the table.
 No option downscales. Inspection footage is examined for cracks and root
 intrusion, so resolution is left alone even in the smallest preset.
 
+### Inspection report
+
+After a conversion finishes, the app can build a branded PDF inspection report:
+scrub the video, capture stills, tag each one, add a recommendation, share it
+through the iOS Share Sheet.
+
+Stills are captured from the **converted MP4**, not the source AVI. The MP4 is
+H.264, which an iPhone decodes in hardware, so scrubbing and `drawImage(video)`
+are effectively free. Pulling frames back through ffmpeg.wasm would mean
+decoding the video a second time in software for no gain.
+
+Design decisions worth knowing:
+
+- **Findings are one-tap chips**, not free text. Typing on a phone in a driveway
+  is what makes a tool like this get abandoned; free text is optional per still.
+- **jsPDF is dynamically imported**, so its ~387 KB never touches first paint.
+  A test asserts it is not fetched until a report is actually built.
+- **Job details persist between reports; findings never do.** Retyping the
+  technician on every job is maddening, but carrying a still from one pipe into
+  another customer's report would be wrong. Drafts are text-only — several 720p
+  JPEGs would blow the `localStorage` quota, and re-capturing a still is easy
+  while retyping an address is not.
+- **The report never claims a licence.** It says "Insured"; it does not say
+  "Licensed", because the Florida CFC is still in progress. There is a test that
+  fails if the word ever appears.
+- **If the browser cannot decode the preview**, capture is disabled with an
+  explanation and the rest of the report still works, rather than leaving a dead
+  player on screen.
+
 ---
 
 ## Versions
@@ -176,6 +207,7 @@ intrusion, so resolution is left alone even in the smallest preset.
 | `@ffmpeg/ffmpeg` | **0.12.15** | exact, ESM build |
 | `@ffmpeg/util` | **0.12.2** | exact |
 | `@ffmpeg/core` | **0.12.10** | exact, **single-threaded**, ESM |
+| `jspdf` | **4.2.1** | exact, lazy-loaded |
 | `vite` | 7.3.6 | Rollup-based; Vite 8 switches to Rolldown and changes worker emission |
 | `@playwright/test` | 1.63.0 | dev only |
 
@@ -303,6 +335,16 @@ Chromium, production build served at `/Converter-Public/`. **20 of 20 passing**,
 | "Smaller"/"Smallest" on H.264 | forced re-encode, both genuinely smaller than the remux |
 | Remux reported in the UI | hint shown on the copy path, absent on a real re-encode |
 | Live production origin | engine loaded in 1.3 s; full conversion; MP4 played back; `application/wasm` confirmed; zero off-origin requests |
+| Report — stills | captured from two different moments, real JPEGs at source resolution, provably not the same frame |
+| Report — PDF | valid `%PDF-`, opens, contains every entered field; page breaks never strand a heading |
+| Report — no stills | still produces a valid PDF |
+| Report — missing address | refuses with a specific message, then works once supplied |
+| Report — undecodable preview | capture disabled with an explanation; the rest of the report still works |
+| Report — draft behaviour | job details carry over between reports; findings never do |
+| Report — teardown | preview video object URL revoked when a new conversion starts |
+| Report — lazy loading | jsPDF not fetched until a report is built |
+| Report — privacy | zero off-origin requests while building a report |
+| Report — licence wording | fails if the PDF ever claims to be "Licensed" |
 
 ### The VEVOR camera's actual format — confirmed
 

@@ -80,7 +80,99 @@
         <button type="button" class="btn btn-primary" id="shareBtn">
           Save / Share MP4
         </button>
+        <button type="button" class="btn btn-secondary" id="startReportBtn">
+          Create Inspection Report
+        </button>
         <p class="hint" id="shareHint"></p>
+      </section>
+
+      <!-- ============================ report ============================ -->
+      <section class="panel report" id="reportPanel" hidden>
+        <h2 class="panel-title">Inspection Report</h2>
+
+        <p class="hint hint-left">
+          Scrub to what you want the customer to see, then capture it. Two or
+          three good stills beat ten.
+        </p>
+
+        <video
+          id="reportVideo"
+          class="report-video"
+          controls
+          playsinline
+          preload="auto"
+          muted
+        ></video>
+
+        <button type="button" class="btn btn-primary" id="captureBtn">
+          Capture This Frame
+        </button>
+
+        <ul class="shots" id="shotList"></ul>
+
+        <div class="field">
+          <label class="field-label" for="repAddress">Service address</label>
+          <input
+            type="text"
+            id="repAddress"
+            class="input"
+            autocomplete="street-address"
+            placeholder="123 Main St, Winter Park"
+          />
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="repCustomer">Customer</label>
+          <input type="text" id="repCustomer" class="input" autocomplete="name" />
+        </div>
+
+        <div class="field two-up">
+          <div>
+            <label class="field-label" for="repDate">Date</label>
+            <input type="date" id="repDate" class="input" />
+          </div>
+          <div>
+            <label class="field-label" for="repTech">Technician</label>
+            <input type="text" id="repTech" class="input" />
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Line inspected</span>
+          <div class="chips" id="lineTypeChips"></div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Overall condition</span>
+          <div class="chips" id="conditionChips"></div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="repRec">Recommendation</label>
+          <textarea
+            id="repRec"
+            class="input"
+            rows="3"
+            placeholder="What you told the customer, in plain language."
+          ></textarea>
+        </div>
+
+        <button type="button" class="btn btn-primary" id="makePdfBtn">
+          Create PDF Report
+        </button>
+        <button type="button" class="btn btn-ghost" id="closeReportBtn">
+          Back
+        </button>
+        <p class="hint" id="reportHint"></p>
+      </section>
+
+      <section class="panel result" id="pdfPanel" hidden>
+        <p class="result-title">Report ready</p>
+        <p class="file-meta" id="pdfMeta"></p>
+        <button type="button" class="btn btn-primary" id="sharePdfBtn">
+          Save / Share Report
+        </button>
+        <p class="hint" id="pdfHint"></p>
       </section>
 
       <section class="panel error" id="errorPanel" hidden>

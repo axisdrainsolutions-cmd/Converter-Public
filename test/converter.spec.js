@@ -171,7 +171,7 @@ test('TEST 4a — video + audio AVI converts to a playable H.264/AAC MP4', async
   await convertViaUI(page, VEVOR_LIKE);
 
   await expect(page.locator('#resultPanel')).toBeVisible({ timeout: 240_000 });
-  await expect(page.locator('.result-title')).toHaveText('MP4 conversion complete');
+  await expect(page.locator('#resultPanel .result-title')).toHaveText('MP4 conversion complete');
 
   const meta = await page.locator('#resultMeta').textContent();
   expect(meta).toContain('20260906_042808_00000004_00N_Customer.mp4');

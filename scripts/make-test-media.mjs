@@ -61,6 +61,18 @@ async function main() {
     console.log(`[media] ${f.name} — ${f.note}`);
   }
 
+  // Playwright's Chromium ships without an H.264 decoder, so it cannot play the
+  // MP4s this app produces. The report step's frame capture is codec-agnostic,
+  // so the report tests feed it this VP8/WebM stand-in when H.264 playback is
+  // unavailable. Real H.264 playback is verified on a real browser instead.
+  await run('ffmpeg', [
+    '-y', '-hide_banner', '-loglevel', 'error',
+    '-f', 'lavfi', '-i', 'testsrc2=size=640x480:rate=10:duration=5',
+    '-c:v', 'libvpx', '-b:v', '600k', '-an',
+    join(outDir, 'preview_stand_in.webm'),
+  ]);
+  console.log('[media] preview_stand_in.webm — VP8 stand-in for browsers without H.264');
+
   // A file that is genuinely broken: real AVI header, garbage payload.
   const good = await readFile(join(outDir, 'video_only.avi'));
   const broken = Buffer.concat([good.subarray(0, 2048), Buffer.alloc(40_000, 0x5a)]);

@@ -295,3 +295,135 @@ h1 {
 .debug .btn {
   margin-top: 0.9rem;
 }
+
+/* --- report builder ---------------------------------------------------- */
+
+.panel-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.hint-left {
+  text-align: left;
+  margin: 0 0 1rem;
+}
+
+.btn-secondary {
+  margin-top: 0.75rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.report-video {
+  display: block;
+  width: 100%;
+  max-height: 45vh;
+  margin-bottom: 1rem;
+  background: #000;
+  border-radius: 10px;
+}
+
+.shots {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+
+.shot {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.shot img {
+  width: 100%;
+  border-radius: 6px;
+  background: #000;
+}
+
+.shot-time {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.72rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+.shot-note {
+  margin-top: 0.5rem;
+}
+
+.shot-remove {
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.field {
+  margin-top: 1rem;
+}
+
+.field.two-up {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.input {
+  display: block;
+  width: 100%;
+  min-height: 2.9rem;
+  padding: 0.65rem 0.8rem;
+  font-size: 1rem; /* 16px stops iOS zooming the page on focus */
+  font-family: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  -webkit-appearance: none;
+}
+
+textarea.input {
+  min-height: auto;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chip[aria-pressed='true'] {
+  color: #04121d;
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.chip.chip-sm {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.78rem;
+}

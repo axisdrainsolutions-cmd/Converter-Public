@@ -10,6 +10,7 @@ import {
   outputNameFor,
   _rawInstance,
 } from './converter.js';
+import { initReportUI, openReport, releaseReport, _reportState } from './report-ui.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -35,6 +36,7 @@ const el = {
   debugInfo: $('debugInfo'),
   debugLog: $('debugLog'),
   copyDebugBtn: $('copyDebugBtn'),
+  startReportBtn: $('startReportBtn'),
 };
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
@@ -99,6 +101,8 @@ function hideProgress() {
 
 /** Frees the previous download URL before a new one is made, and on replacement. */
 function releaseOutput() {
+  // The report is built from the current MP4, so it must not outlive it.
+  releaseReport();
   if (state.objectUrl) {
     URL.revokeObjectURL(state.objectUrl);
     state.objectUrl = null;
@@ -331,8 +335,14 @@ window.addEventListener('pagehide', () => {
   if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
 });
 
+initReportUI();
+el.startReportBtn.addEventListener('click', () => {
+  if (state.output) openReport(state.output);
+});
+
 // Test hook. Only used by the Playwright suite; harmless in production.
 window.__converter = { convert, loadEngine, outputNameFor, getLogs, onLog, isLoaded, state };
+window.__report = { openReport, state: _reportState };
 Object.defineProperty(window, '__ff', { get: () => _rawInstance() });
 
 setBusy(false);
