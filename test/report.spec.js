@@ -365,3 +365,35 @@ test('capture still works when the page is hidden — it must never hang silentl
   expect(shot.w).toBe(640);
   expect(shot.len).toBeGreaterThan(5000);
 });
+
+test('a badge that will not load never costs you the report', async ({ page }) => {
+  // The artwork is decoration; the findings are the point.
+  await page.route('**/assets/logo*', (route) => route.abort('failed'));
+  await toReportStep(page);
+  await captureAt(page, 1.0);
+  await page.fill('#repAddress', '2 Fallback Road');
+  await page.click('#makePdfBtn');
+  await expect(page.locator('#pdfPanel')).toBeVisible({ timeout: 60_000 });
+
+  const path = await savePdf(page, 'report-no-badge.pdf');
+  expect((await readFile(path)).subarray(0, 5).toString('latin1')).toBe('%PDF-');
+  const text = await pdfText(path);
+  // The header falls back to text, so the company is still identified.
+  expect(text).toContain('Axis Drain Solutions');
+  expect(text).toContain('2 Fallback Road');
+});
+
+test('the shipped badge is a baseline JPEG with no alpha channel', async () => {
+  // Transparency would make jsPDF build a soft mask, which is the most fragile
+  // part of its image pipeline and what broke report generation on iOS Safari.
+  const { readdir } = await import('node:fs/promises');
+  const dir = resolve(here, '..', 'dist', 'assets');
+  const files = await readdir(dir);
+  const logo = files.find((f) => /^logo-.*\.jpe?g$/.test(f));
+  expect(logo, `no JPEG badge in dist/assets: ${files.join(', ')}`).toBeTruthy();
+  const bytes = await readFile(join(dir, logo));
+  expect(bytes.subarray(0, 2).toString('hex'), 'not a JPEG').toBe('ffd8');
+  // SOF2 (0xFFC2) marks a progressive JPEG, which jsPDF cannot decode.
+  expect(bytes.includes(Buffer.from([0xff, 0xc2])), 'progressive JPEG').toBe(false);
+  expect(files.some((f) => /^logo-.*\.png$/.test(f)), 'a PNG badge is still shipped').toBe(false);
+});

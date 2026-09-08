@@ -11,7 +11,7 @@
  * the converter.
  */
 
-import LOGO_URL from './assets/logo.png';
+import LOGO_URL from './assets/logo.jpg';
 
 /** One-tap findings. Typing on a phone in a driveway is the thing that kills
  *  adoption, so the common cases are all chips and free text is optional. */
@@ -190,15 +190,45 @@ const CONTENT_W = PAGE.w - M * 2;
  * bundle and be downloaded by everyone who merely converts a video.
  */
 let badgePromise = null;
+
+/**
+ * Loads the badge as a base64 data URL.
+ *
+ * It is a baseline JPEG already composited onto the header colour, not a
+ * transparent PNG. jsPDF renders alpha by generating a soft mask, which is the
+ * most fragile part of its image pipeline; the badge only ever sits on one
+ * colour, so transparency bought nothing and cost compatibility.
+ *
+ * A data URL is handed to jsPDF rather than an <img> element because it is the
+ * best-supported input it takes — no canvas round-trip, no re-encoding.
+ * Anything that goes wrong resolves to null, and the report is built without
+ * the badge rather than not at all.
+ */
 function loadBadge() {
   if (!badgePromise) {
-    badgePromise = new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      // A missing badge must never stop a report being produced.
-      img.onerror = () => resolve(null);
-      img.src = LOGO_URL;
-    });
+    badgePromise = (async () => {
+      try {
+        const res = await fetch(LOGO_URL, { cache: 'force-cache' });
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        const dataUrl = await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result);
+          fr.onerror = () => reject(fr.error || new Error('badge read failed'));
+          fr.readAsDataURL(blob);
+        });
+        const size = await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+          img.onerror = () => resolve(null);
+          img.src = dataUrl;
+        });
+        if (!size || !size.w) return null;
+        return { dataUrl, ...size };
+      } catch {
+        return null;
+      }
+    })();
   }
   return badgePromise;
 }
@@ -223,13 +253,9 @@ function header(doc, pageNo, badge) {
 
   if (tall) {
     const badgeH = 30;
-    const badgeW = (badgeH * badge.naturalWidth) / badge.naturalHeight;
-    try {
-      doc.addImage(badge, 'PNG', M, (bandH - badgeH) / 2, badgeW, badgeH, 'logo', 'FAST');
-      textX = M + badgeW + 7;
-    } catch {
-      /* fall back to text only */
-    }
+    const badgeW = (badgeH * badge.w) / badge.h;
+    doc.addImage(badge.dataUrl, 'JPEG', M, (bandH - badgeH) / 2, badgeW, badgeH, 'logo', 'FAST');
+    textX = M + badgeW + 7;
   }
 
   // The company name is kept as real text as well as artwork, so the PDF stays
@@ -310,10 +336,22 @@ function labelledRow(doc, pairs, y) {
 /**
  * Builds the PDF and returns it as a File, ready for navigator.share().
  */
-export async function buildReportPdf(report, { videoName } = {}) {
+export async function buildReportPdf(report, opts = {}) {
+  const badge = await loadBadge();
+  try {
+    return await renderPdf(report, opts, badge);
+  } catch (err) {
+    if (!badge) throw err;
+    // The badge is decoration; the findings are the point. Never lose a whole
+    // report because the artwork would not embed.
+    console.warn('[report] PDF build failed with the badge, retrying without it', err);
+    return renderPdf(report, opts, null);
+  }
+}
+
+async function renderPdf(report, { videoName } = {}, badge) {
   const JsPDF = await loadJsPDF();
   const doc = new JsPDF({ unit: 'mm', format: 'letter', compress: true });
-  const badge = await loadBadge();
 
   let page = 1;
   let y = header(doc, page, badge);

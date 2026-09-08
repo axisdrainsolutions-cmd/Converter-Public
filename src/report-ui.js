@@ -285,8 +285,10 @@ async function onMakePdf() {
     el.pdfPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
     console.error('[report] pdf failed', err);
-    el.hint.textContent =
-      'The report could not be built. Please try again, or remove a still and retry.';
+    // Say what actually went wrong. "Could not be built" on its own leaves both
+    // of us guessing, which is exactly what happened the first time this broke.
+    const detail = String((err && (err.message || err.name)) || err).slice(0, 160);
+    el.hint.textContent = `The report could not be built: ${detail}. Try removing a still and building again.`;
   } finally {
     busy = false;
     el.makePdfBtn.disabled = false;
