@@ -1,0 +1,26 @@
+{
+  "name": "drain-video-converter",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Client-side AVI to MP4 converter for drain/sewer inspection footage.",
+  "scripts": {
+    "sync-core": "node scripts/copy-ffmpeg-core.mjs",
+    "predev": "npm run sync-core",
+    "dev": "vite",
+    "prebuild": "npm run sync-core",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:e2e": "node scripts/make-test-media.mjs && playwright test",
+    "test:install": "playwright install --with-deps chromium"
+  },
+  "dependencies": {
+    "@ffmpeg/core": "0.12.10",
+    "@ffmpeg/ffmpeg": "0.12.15",
+    "@ffmpeg/util": "0.12.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "vite": "7.3.6"
+  }
+}

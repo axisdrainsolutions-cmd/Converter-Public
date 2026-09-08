@@ -1,0 +1,23 @@
+{
+  "name": "Drain Video Converter",
+  "short_name": "Drain Converter",
+  "description": "Convert drain and sewer inspection camera AVI recordings into customer-ready MP4 files, entirely on your own device.",
+  "start_url": "/Converter-Public/",
+  "scope": "/Converter-Public/",
+  "id": "/Converter-Public/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+# Generated at build time by scripts/copy-ffmpeg-core.mjs from the pinned
+# @ffmpeg/core package. Keeping the 32 MB wasm out of git keeps clones fast;
+# CI regenerates it from package-lock.json before every build.
+public/ffmpeg/
+
+# Test artefacts
+test-results/
+playwright-report/
+test/media/
