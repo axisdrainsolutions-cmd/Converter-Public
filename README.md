@@ -4,7 +4,12 @@ Converts drain/sewer inspection camera **AVI** recordings into customer-ready
 **MP4** files. Everything happens in the browser on the technician's own device —
 the AVI is never uploaded anywhere.
 
-Production: <https://axisdrainsolutions.github.io/Converter-Public/>
+Production: <https://axisdrainsolutions-cmd.github.io/Converter-Public/>
+
+> Published from the `axisdrainsolutions-cmd` account. The original
+> `axisdrainsolutions` account still hosts the old, broken version at
+> <https://axisdrainsolutions.github.io/Converter-Public/> — take that down or
+> point it here once access to that account is restored.
 
 ---
 
