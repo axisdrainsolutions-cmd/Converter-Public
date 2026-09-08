@@ -32,7 +32,7 @@ function newSink() {
 }
 
 /** Drives the real UI: pick file, choose quality, convert, wait for result. */
-async function convertViaUI(page, fileName, quality = 'balanced') {
+async function convertViaUI(page, fileName, quality = 'original') {
   await page.setInputFiles('#fileInput', media(fileName));
   await expect(page.locator('#fileMeta')).toBeVisible();
   await page.selectOption('#quality', quality);
@@ -239,17 +239,27 @@ test('TEST 4c — H.264/MP3 AVI and a small 320x240 MJPEG AVI both convert', asy
   expect(v.pix_fmt).toBe('yuv420p');
 });
 
-test('quality presets produce meaningfully different file sizes', async ({ page }) => {
+test('the three quality options are genuinely different, and copy only applies to H.264', async ({ page }) => {
   await page.goto('./');
-  const sizes = {};
-  for (const q of ['small', 'balanced', 'high']) {
-    await convertViaUI(page, VEVOR_LIKE, q);
-    await expect(page.locator('#resultPanel')).toBeVisible({ timeout: 240_000 });
-    sizes[q] = await page.evaluate(() => window.__converter.state.output.size);
-  }
-  console.log('  sizes:', sizes);
-  expect(sizes.small).toBeLessThan(sizes.balanced);
-  expect(sizes.balanced).toBeLessThan(sizes.high);
+
+  // MJPEG source: nothing can be copied, so the two re-encode presets must
+  // still differ from each other in size.
+  const mjpegSmaller = await convertRaw(page, VEVOR_LIKE, 'smaller');
+  const mjpegSmallest = await convertRaw(page, VEVOR_LIKE, 'smallest');
+  expect(mjpegSmaller.mode).toBe('encode');
+  expect(mjpegSmallest.mode).toBe('encode');
+  expect(mjpegSmallest.size).toBeLessThan(mjpegSmaller.size);
+
+  // H.264 source: the default copies (fast, original quality, larger), while
+  // both "smaller" options genuinely re-encode and shrink it.
+  const h264Original = await convertRaw(page, 'h264_mp3.avi', 'original');
+  const h264Smallest = await convertRaw(page, 'h264_mp3.avi', 'smallest');
+  expect(h264Original.mode).toBe('copy');
+  expect(h264Smallest.mode).toBe('encode');
+  expect(h264Smallest.size).toBeLessThan(h264Original.size);
+
+  console.log('  MJPEG  smaller/smallest:', mjpegSmaller.size, '/', mjpegSmallest.size);
+  console.log('  H.264  original/smallest:', h264Original.size, '/', h264Smallest.size);
 });
 
 test('TEST 6 — A, then B, then A again: repeat conversion is clean and never returns stale output', async ({ page }) => {
@@ -445,4 +455,113 @@ test('privacy — nothing leaves the origin during a full conversion', async ({ 
   expect(uploads, `the app made upload-shaped requests: ${uploads.join(', ')}`).toHaveLength(0);
   const external = sink.responses.filter((r) => !r.url.startsWith('http://127.0.0.1:4173/'));
   expect(external, `external requests: ${JSON.stringify(external)}`).toHaveLength(0);
+});
+
+/* ===================== stream copy (added after first release) ============ */
+
+/** Loads the engine, then runs convert() directly so `mode` is observable. */
+async function convertRaw(page, fileName, quality = 'original') {
+  await page.setInputFiles('#fileInput', media(fileName));
+  await expect(page.locator('#fileMeta')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => window.__converter.isLoaded()), { timeout: 180_000 })
+    .toBe(true);
+  return page.evaluate(async (q) => {
+    const res = await window.__converter.convert(window.__converter.state.source, { quality: q });
+    const buf = new Uint8Array(await res.file.arrayBuffer());
+    let s = '';
+    for (let i = 0; i < buf.length; i += 0x8000) {
+      s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    }
+    return {
+      mode: res.mode,
+      name: res.file.name,
+      size: res.file.size,
+      sourceVideo: res.info.video,
+      hasAudio: res.info.hasAudio,
+      b64: btoa(s),
+    };
+  }, quality);
+}
+
+async function probeB64(b64, name) {
+  await mkdir(artefacts, { recursive: true });
+  const p = join(artefacts, name);
+  await writeFile(p, Buffer.from(b64, 'base64'));
+  return { path: p, probe: await ffprobe(p) };
+}
+
+test('an H.264 AVI is remuxed, not re-encoded — and the result still plays', async ({ page }) => {
+  await page.goto('./');
+  const r = await convertRaw(page, 'h264_mp3.avi', 'original');
+
+  expect(r.sourceVideo.codec).toBe('h264');
+  expect(r.mode, 'an H.264 source should be remuxed, not re-encoded').toBe('copy');
+
+  const { path, probe } = await probeB64(r.b64, 'copied.mp4');
+  const v = probe.streams.find((s) => s.codec_type === 'video');
+  const a = probe.streams.find((s) => s.codec_type === 'audio');
+  expect(probe.format.format_name).toContain('mp4');
+  expect(v.codec_name).toBe('h264');
+  expect(v.pix_fmt).toBe('yuv420p');
+  // Audio is always re-encoded, even in copy mode.
+  expect(a.codec_name).toBe('aac');
+
+  const { stderr } = await run('ffmpeg', ['-v', 'error', '-i', path, '-f', 'null', '-']);
+  expect(stderr.trim(), `remuxed output failed to decode: ${stderr}`).toBe('');
+});
+
+test('an MJPEG AVI is NEVER remuxed — copying it would make an unplayable MP4', async ({ page }) => {
+  await page.goto('./');
+  const r = await convertRaw(page, VEVOR_LIKE, 'original');
+
+  expect(r.sourceVideo.codec).toBe('mjpeg');
+  expect(r.mode, 'MJPEG must be re-encoded to H.264, never copied').toBe('encode');
+
+  const { probe } = await probeB64(r.b64, 'mjpeg_encoded.mp4');
+  const v = probe.streams.find((s) => s.codec_type === 'video');
+  expect(v.codec_name, 'MJPEG leaked into the MP4 — iOS cannot play this').toBe('h264');
+});
+
+test('"Smaller File" re-encodes even an H.264 source, because remuxing cannot shrink it', async ({ page }) => {
+  await page.goto('./');
+  const r = await convertRaw(page, 'h264_mp3.avi', 'smaller');
+  expect(r.mode).toBe('encode');
+  const { probe } = await probeB64(r.b64, 'small_forced.mp4');
+  expect(probe.streams.find((s) => s.codec_type === 'video').codec_name).toBe('h264');
+});
+
+test('the Smallest preset is selectable in the UI and still produces a playable MP4', async ({ page }) => {
+  await page.goto('./');
+  await page.setInputFiles('#fileInput', media(VEVOR_LIKE));
+  await expect(page.locator('#fileMeta')).toBeVisible();
+  await page.selectOption('#quality', 'smallest');
+  await page.click('#convertBtn');
+  await expect(page.locator('#resultPanel')).toBeVisible({ timeout: 240_000 });
+
+  const { probe } = await probeB64(
+    await page.evaluate(async () => {
+      const f = window.__converter.state.output;
+      const b = new Uint8Array(await f.arrayBuffer());
+      let s = '';
+      for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+      return btoa(s);
+    }),
+    'smallest.mp4'
+  );
+  const v = probe.streams.find((s) => s.codec_type === 'video');
+  expect(v.codec_name).toBe('h264');
+  expect(v.pix_fmt).toBe('yuv420p');
+});
+
+test('the copy path is reported to the user, so a fast run is explained not mysterious', async ({ page }) => {
+  await page.goto('./');
+  await convertViaUI(page, 'h264_mp3.avi', 'original');
+  await expect(page.locator('#resultPanel')).toBeVisible({ timeout: 240_000 });
+  await expect(page.locator('#shareHint')).toContainText('without re-encoding');
+
+  // ...and NOT reported when a real re-encode happened.
+  await convertViaUI(page, VEVOR_LIKE, 'original');
+  await expect(page.locator('#resultPanel')).toBeVisible({ timeout: 240_000 });
+  await expect(page.locator('#shareHint')).toHaveText('');
 });

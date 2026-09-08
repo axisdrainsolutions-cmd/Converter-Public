@@ -98,31 +98,74 @@ size.
 The virtual filesystem is wiped before *and* after every run (including failed
 runs), so a stale `output.mp4` can never be handed back as a fresh result.
 
-### Conversion command
+### Conversion: two paths
+
+The app probes the source with `ffmpeg -i` before doing anything, then picks one
+of two paths.
+
+**Path 1 — remux (no re-encoding).** Used when the source video is already H.264
+in a form iOS plays. The existing frames are moved into an MP4 container:
 
 ```
 ffmpeg -hide_banner -fflags +genpts -i <input>
        -map 0:v:0 -map 0:a:0?
-       -c:v libx264 -preset <preset> -crf <crf>
-       -pix_fmt yuv420p
-       -vf scale=trunc(iw/2)*2:trunc(ih/2)*2
-       -movflags +faststart
-       -avoid_negative_ts make_zero
-       [-c:a aac -b:a <rate> -ac 2]      # only when the source has audio
+       -c:v copy
+       -movflags +faststart -avoid_negative_ts make_zero
+       [-c:a aac -b:a <rate> -ac 2]
        output.mp4
 ```
 
-`-map 0:a:0?` makes audio optional; the AAC options are omitted entirely for
-video-only sources. A `ffmpeg -i` probe pass runs first, so the app knows the
-container, codecs, resolution and whether audio exists before it encodes — which
-is how it can say *"Unsupported AVI format (video codec: …)"* instead of
-*"Conversion failed."*
+**Path 2 — full re-encode.** Everything else (MJPEG, MPEG-4 Part 2, exotic H.264):
 
-| Preset | Flags |
-|---|---|
-| Customer — Best Balance | `-preset veryfast -crf 23`, audio 128k |
-| Higher Quality — Larger File | `-preset faster -crf 20`, audio 160k |
-| Smaller File — Lower Quality | `-preset veryfast -crf 30`, audio 96k |
+```
+ffmpeg -hide_banner -fflags +genpts -i <input>
+       -map 0:v:0 -map 0:a:0?
+       -c:v libx264 -preset <preset> -crf <crf> -pix_fmt yuv420p
+       [-vf scale=trunc(iw/2)*2:trunc(ih/2)*2]   # only if a dimension is odd
+       -movflags +faststart -avoid_negative_ts make_zero
+       [-c:a aac -b:a <rate> -ac 2]
+       output.mp4
+```
+
+Remuxing is gated deliberately narrowly — codec `h264`, pixel format `yuv420p`,
+and profile Baseline / Constrained Baseline / Main / High. Anything else
+re-encodes. Copying an MJPEG stream into an MP4 *succeeds* and produces a file
+that saves fine and then refuses to play on an iPhone, which is a far worse
+failure than being slow; there is a test that specifically prevents it. If a
+remux fails for any reason the app silently falls back to re-encoding.
+
+Audio is always re-encoded to AAC, even on the remux path: AVI carries PCM or
+MP3 far more often than AAC, and encoding a few minutes of 8–16 kHz mono costs
+about a second.
+
+### Why re-encoding is slow, and remuxing is not
+
+Measured in the real engine on 60 seconds of 1280×720 30 fps H.264 at 8.6 Mbps —
+i.e. the VEVOR camera's actual output format. Desktop Chromium; an iPhone is
+roughly 2× slower.
+
+| Path | Time | Output |
+|---|---|---|
+| Remux (`-c:v copy`) | **6.9 s** | 63.4 MB |
+| Re-encode crf 23, 720p | 100.7 s | 20.5 MB |
+| Re-encode crf 30, 720p | 92.8 s | 8.3 MB |
+| Re-encode crf 26 `ultrafast`, 720p | 40.4 s | 47.0 MB |
+| Re-encode crf 23, downscaled to 854×480 | 70.1 s | 5.7 MB |
+
+The key finding: **re-encoding costs 70–100 s per minute of footage regardless of
+preset or output resolution**, because decoding a high-bitrate 720p H.264 stream
+in WebAssembly is the floor. Preset tuning buys at most 2.5× and costs a lot of
+file size; dropping to 480p barely helps the clock. Remuxing skips decoding
+entirely, which is why it is 15× faster than anything else on the table.
+
+| Quality option | Behaviour | 60 s of VEVOR footage |
+|---|---|---|
+| **Customer — Fast (Original Quality)** *(default)* | remux if H.264, else `veryfast` crf 23 | ~7 s, 63 MB |
+| **Smaller File — Slower** | always re-encode, `veryfast` crf 23 | ~101 s, 21 MB |
+| **Smallest File — Slowest** | always re-encode, `veryfast` crf 30 | ~93 s, 8 MB |
+
+No option downscales. Inspection footage is examined for cracks and root
+intrusion, so resolution is left alone even in the smallest preset.
 
 ---
 
@@ -233,7 +276,7 @@ on every build, which keeps clones small and makes drift impossible.
 
 ## Test results
 
-Chromium 1194, production build served at `/Converter-Public/`. 16 of 16 passing.
+Chromium, production build served at `/Converter-Public/`. **20 of 20 passing**, plus a separate large-file stress test.
 
 | Area | Result |
 |---|---|
@@ -255,26 +298,62 @@ Chromium 1194, production build served at `/Converter-Public/`. 16 of 16 passing
 | Output filenames | 8 awkward inputs, all safe |
 | Object URLs | previous URL revoked before replacement |
 | 60.8 MB / 720p / 45 s | → 13.7 MB in 70 s; **JS heap 16.7 MB**; WORKERFS confirmed |
+| H.264 source | remuxed, not re-encoded; output decodes clean |
+| MJPEG source | **never** remuxed — re-encoded to H.264 (copying it would make an unplayable MP4) |
+| "Smaller"/"Smallest" on H.264 | forced re-encode, both genuinely smaller than the remux |
+| Remux reported in the UI | hint shown on the copy path, absent on a real re-encode |
+| Live production origin | engine loaded in 1.3 s; full conversion; MP4 played back; `application/wasm` confirmed; zero off-origin requests |
+
+### The VEVOR camera's actual format — confirmed
+
+A real recording (`20260906_042808_00000004_00N.AVI`) was inspected by parsing
+its RIFF/AVI headers and H.264 SPS directly. The video itself was never copied
+off the owner's machine.
+
+| Property | Value |
+|---|---|
+| Container | AVI (RIFF) |
+| Video codec | **H.264**, FourCC `H264` |
+| Profile / level | **High, Level 4.0** (`profile_idc` 100) |
+| Resolution / rate | 1280×720, 30 fps |
+| Audio | PCM signed 16-bit, mono, 16 kHz (`wFormatTag` 0x0001) |
+| Segment size | exactly 15 MiB — 14.37 s, ≈8.4 Mbps |
+
+Two consequences:
+
+1. **The remux path applies.** High profile is on the safe list, so these files
+   convert in seconds rather than minutes.
+2. **The camera appears to segment at a fixed 15 MiB**, so individual files stay
+   short. Combined with remuxing, a typical file should convert in a few seconds
+   on an iPhone.
 
 ### Verified with test media vs. verified with a VEVOR AVI
 
-Everything above is **verified with test media**. No VEVOR AVI has been through
-this build.
+**Verified end to end with a real VEVOR AVI on a real iPhone:** file picking
+through the iOS Files picker, engine load, conversion, the iOS Share Sheet, Save
+to Files, and playback of the result. Reported working by the device owner.
 
-Still requires a real VEVOR file to confirm:
+**Verified by direct inspection of a real VEVOR AVI:** container, video codec,
+profile, level, resolution, frame rate, audio format, segment size (table above).
 
-- the actual codec inside VEVOR AVI containers (AVI is only a container — the
-  app is built to tolerate MJPEG, MPEG-4 Part 2, H.264 and friends, but which
-  one VEVOR writes is unconfirmed)
-- any non-standard AVI index or header quirks
-- real-world conversion time for a 15 MB clip on the technician's actual iPhone
-- iPhone Safari end to end: picker → convert → Share Sheet → Save to Files →
-  playback
+**Verified with synthetic test media only:**
 
-If a real file fails, open the app with `?debug=1`, reproduce, and use **Copy
+- the remux path itself, exercised against a synthetic H.264 AVI and against a
+  synthetic file built to match the VEVOR parameters above — but not yet against
+  a real VEVOR file end to end since the remux path was added
+- MJPEG, MPEG-4 Part 2 and corrupt-file handling
+- the timing table above (synthetic 720p30 H.264 at 8.6 Mbps)
+
+**Still unverified:**
+
+- conversion time for a real VEVOR file on the technician's actual iPhone with
+  remuxing enabled
+- whether every VEVOR recording uses the same profile, or whether settings on the
+  camera can produce something else. The app handles that safely either way —
+  anything outside the safe list re-encodes — but it would be slower.
+
+If a file ever fails, open the app with `?debug=1`, reproduce, and use **Copy
 diagnostics**. The probe pass captures the exact container and codec names.
-
----
 
 ## Privacy
 
@@ -321,9 +400,17 @@ exist. There is no drop-in non-GPL replacement for H.264 encoding here.
 
 ## Known limitations
 
-- **Speed.** Single-threaded wasm software encoding. A 45 s 720p clip took 70 s on
-  desktop; an iPhone will be slower. Multithreading is not possible on GitHub
-  Pages (no COOP/COEP headers).
+- **Speed, when re-encoding is unavoidable.** Single-threaded wasm software
+  encoding costs 70–100 s per minute of 720p footage on desktop, roughly 2× that
+  on an iPhone. Sources that are already H.264 avoid this entirely by remuxing;
+  MJPEG and MPEG-4 sources cannot. The only remaining lever that would not cost
+  file size is multithreading, which needs `SharedArrayBuffer` and therefore
+  COOP/COEP headers that GitHub Pages cannot set — reachable via a
+  service-worker workaround, deliberately not attempted yet.
+- **Remuxed files are large.** The remux path preserves the camera's ~8.4 Mbps
+  bitrate, so output is roughly the same size as the input (~64 MB per minute).
+  Fine for the camera's ~14 s segments; use "Smaller File" for anything long
+  that has to go out by email.
 - **First run downloads ~32 MB.** Cached afterwards, but the first conversion on
   a new device needs a connection.
 - **Large files on iPhone.** WORKERFS keeps the input out of memory, but the

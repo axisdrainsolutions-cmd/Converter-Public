@@ -34,11 +34,43 @@ const MOUNT_DIR = '/mnt';
 const OUTPUT_NAME = 'output.mp4';
 const LOG_RING = 400;
 
+/**
+ * `allowCopy` means: if the source video is already H.264 in a form iOS plays,
+ * remux it into MP4 instead of re-encoding. That is ~9x faster and lossless.
+ * "Smaller File" deliberately refuses it, because remuxing keeps the source
+ * bitrate and so cannot guarantee a smaller file.
+ */
 export const QUALITY_PRESETS = {
-  balanced: { label: 'Customer — Best Balance', crf: '23', preset: 'veryfast', audioBitrate: '128k' },
-  high: { label: 'Higher Quality — Larger File', crf: '20', preset: 'faster', audioBitrate: '160k' },
-  small: { label: 'Smaller File — Lower Quality', crf: '30', preset: 'veryfast', audioBitrate: '96k' },
+  original: {
+    label: 'Customer — Fast (Original Quality)',
+    crf: '23', preset: 'veryfast', audioBitrate: '128k', allowCopy: true,
+  },
+  smaller: {
+    label: 'Smaller File — Slower',
+    crf: '23', preset: 'veryfast', audioBitrate: '128k', allowCopy: false,
+  },
+  smallest: {
+    label: 'Smallest File — Slowest',
+    crf: '30', preset: 'veryfast', audioBitrate: '96k', allowCopy: false,
+  },
 };
+
+/**
+ * H.264 profiles an iPhone will reliably play. Anything exotic (High 4:2:2,
+ * High 4:4:4 Predictive, lossless) is re-encoded rather than risking an MP4
+ * that saves fine and then refuses to play — which would be a worse failure
+ * than being slow.
+ */
+const SAFE_H264_PROFILES = /^(Constrained Baseline|Baseline|Main|High)$/i;
+const SAFE_PIX_FMTS = /^yuvj?420p$/;
+
+export function canStreamCopy(info) {
+  const v = info && info.video;
+  if (!v || v.codec !== 'h264') return false;
+  if (v.pixFmt && !SAFE_PIX_FMTS.test(v.pixFmt)) return false;
+  if (v.profile && !SAFE_H264_PROFILES.test(v.profile)) return false;
+  return true;
+}
 
 /* ------------------------------------------------------------------ state - */
 
@@ -272,11 +304,18 @@ export function parseProbe(lines) {
       info.hasVideo = true;
       const size = rest.match(/(\d{2,5})x(\d{2,5})/);
       const fps = rest.match(/([\d.]+)\s*fps/);
+      // "Video: h264 (Constrained Baseline) (H264 / 0x…), yuv420p(progressive), 640x480 …"
+      const profile = rest.match(/^\s*\(([^)]+)\)/);
+      const pixFmt = rest.match(/\b(yuvj?\d{3}p(?:\d{1,2}(?:le|be))?|gray|rgb24|bgr24|nv12|nv21|pal8)\b/);
+      const kbps = rest.match(/(\d+)\s*kb\/s/);
       info.video = {
         codec,
+        profile: profile ? profile[1] : null,
+        pixFmt: pixFmt ? pixFmt[1] : null,
         width: size ? Number(size[1]) : null,
         height: size ? Number(size[2]) : null,
         fps: fps ? Number(fps[1]) : null,
+        kbps: kbps ? Number(kbps[1]) : null,
       };
     } else if (kind === 'Audio' && !info.audio) {
       info.hasAudio = true;
@@ -331,8 +370,8 @@ function probeToError(info) {
 
 /* ------------------------------------------------------------------ convert */
 
-function buildArgs(inputPath, info, quality) {
-  const preset = QUALITY_PRESETS[quality] || QUALITY_PRESETS.balanced;
+function buildArgs(inputPath, info, quality, mode) {
+  const preset = QUALITY_PRESETS[quality] || QUALITY_PRESETS.original;
 
   const args = [
     '-hide_banner',
@@ -348,25 +387,35 @@ function buildArgs(inputPath, info, quality) {
     // The '?' makes the audio map optional, so a video-only AVI is not an error.
     '-map',
     '0:a:0?',
-    '-c:v',
-    'libx264',
-    '-preset',
-    preset.preset,
-    '-crf',
-    preset.crf,
-    '-pix_fmt',
-    'yuv420p',
-    // yuv420p needs even dimensions. Some inspection cameras record odd sizes,
-    // which otherwise fails with "width not divisible by 2".
-    '-vf',
-    'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-    '-movflags',
-    '+faststart',
-    '-avoid_negative_ts',
-    'make_zero',
   ];
 
+  if (mode === 'copy') {
+    // The source is already H.264 that iOS can play, so there is nothing to
+    // gain by decoding and re-encoding it — only time and generation loss.
+    // This just moves the existing frames into an MP4 container.
+    args.push('-c:v', 'copy');
+  } else {
+    args.push(
+      '-c:v', 'libx264',
+      '-preset', preset.preset,
+      '-crf', preset.crf,
+      '-pix_fmt', 'yuv420p'
+    );
+    // yuv420p needs even dimensions. Only pay for a scale pass when the source
+    // actually has an odd dimension (or we could not read one from the probe).
+    const v = info.video;
+    const evenKnown = v && v.width && v.height && v.width % 2 === 0 && v.height % 2 === 0;
+    if (!evenKnown) {
+      args.push('-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2');
+    }
+  }
+
+  args.push('-movflags', '+faststart', '-avoid_negative_ts', 'make_zero');
+
   if (info.hasAudio) {
+    // Audio is always re-encoded, even in copy mode: AVI carries PCM or MP3 far
+    // more often than AAC, and encoding a few minutes of 8 kHz mono costs
+    // roughly a second. Not worth a second compatibility risk to save that.
     args.push('-c:a', 'aac', '-b:a', preset.audioBitrate, '-ac', '2');
   }
 
@@ -378,7 +427,7 @@ function buildArgs(inputPath, info, quality) {
  * Full pipeline: stage -> probe -> encode -> read -> clean up.
  * Returns { file, info, args, durationMs }.
  */
-export async function convert(file, { quality = 'balanced', onStatus = () => {}, onProgress = () => {} } = {}) {
+export async function convert(file, { quality = 'original', onStatus = () => {}, onProgress = () => {} } = {}) {
   if (!ffmpeg) throw new ConverterError('The converter engine is not loaded.', 'NOT_LOADED');
 
   const started = Date.now();
@@ -393,20 +442,39 @@ export async function convert(file, { quality = 'balanced', onStatus = () => {},
     const probeError = probeToError(info);
     if (probeError) throw probeError;
 
-    const args = buildArgs(staged.path, info, quality);
-    pushLog(`[app] ffmpeg ${args.join(' ')}`);
+    const preset = QUALITY_PRESETS[quality] || QUALITY_PRESETS.original;
 
-    onStatus('Converting video…');
-    // Progress is documented as experimental, so it is treated as decoration:
-    // it is clamped below 100% and the UI never uses it to decide completion.
-    progressSink = ({ progress }) => {
-      if (typeof progress === 'number' && isFinite(progress)) {
-        onProgress(Math.max(0, Math.min(0.99, progress)));
-      }
+    const runPass = async (mode) => {
+      const args = buildArgs(staged.path, info, quality, mode);
+      pushLog(`[app] ffmpeg ${args.join(' ')}`);
+      onStatus(mode === 'copy' ? 'Repackaging video…' : 'Converting video…');
+      // Progress is documented as experimental, so it is treated as decoration:
+      // it is clamped below 100% and the UI never uses it to decide completion.
+      progressSink = ({ progress }) => {
+        if (typeof progress === 'number' && isFinite(progress)) {
+          onProgress(Math.max(0, Math.min(0.99, progress)));
+        }
+      };
+      const code = await ffmpeg.exec(args);
+      progressSink = null;
+      return code;
     };
 
-    const exitCode = await ffmpeg.exec(args);
-    progressSink = null;
+    let mode = preset.allowCopy && canStreamCopy(info) ? 'copy' : 'encode';
+    let exitCode = await runPass(mode);
+
+    // If remuxing fails for any reason, fall back to a full re-encode rather
+    // than reporting failure. The slow path always works.
+    if (exitCode !== 0 && mode === 'copy') {
+      pushLog('[app] stream copy failed, falling back to a full re-encode');
+      try {
+        await ffmpeg.deleteFile(OUTPUT_NAME);
+      } catch {
+        /* nothing to remove */
+      }
+      mode = 'encode';
+      exitCode = await runPass(mode);
+    }
 
     if (exitCode !== 0) {
       throw explainExecFailure(exitCode, info);
@@ -422,7 +490,7 @@ export async function convert(file, { quality = 'balanced', onStatus = () => {},
     }
 
     const outputFile = new File([data], outputNameFor(file.name), { type: 'video/mp4' });
-    return { file: outputFile, info, args, durationMs: Date.now() - started };
+    return { file: outputFile, info, mode, durationMs: Date.now() - started };
   } finally {
     progressSink = null;
     // Always clean up, including on failure, so the next run starts empty and
@@ -483,7 +551,7 @@ export function outputNameFor(inputName) {
     .pop();
   const stem = base.replace(/\.[^.]*$/, '') || 'video';
   const safe = stem
-    .replace(/[ -<>:"|?*]+/g, '_')
+    .replace(/[\u0000-\u001f<>:"|?*\\/]+/g, '_')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 120)

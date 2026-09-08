@@ -216,9 +216,13 @@ el.convertBtn.addEventListener('click', async () => {
     setProgress(1);
     state.output = result.file;
     el.resultMeta.textContent = `${result.file.name} • ${formatBytes(result.file.size)}`;
+    el.shareHint.textContent =
+      result.mode === 'copy'
+        ? 'Already H.264 — repackaged without re-encoding, so it kept full original quality.'
+        : '';
     el.resultPanel.hidden = false;
     setStatus('Complete.');
-    console.info('[converter] done in %dms', result.durationMs, result.info);
+    console.info('[converter] done in %dms (%s)', result.durationMs, result.mode, result.info);
   } catch (err) {
     hideProgress();
     setStatus('');
