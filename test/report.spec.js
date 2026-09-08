@@ -340,3 +340,28 @@ test('privacy — building a report sends nothing off-origin', async ({ page }) 
 
   expect(external, `report step made off-origin requests: ${external.join(', ')}`).toHaveLength(0);
 });
+
+test('capture still works when the page is hidden — it must never hang silently', async ({ page }) => {
+  await toReportStep(page);
+
+  // requestAnimationFrame does not fire while a page is hidden. captureFrame
+  // used to await one, which hung forever with no error and no message.
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
+    Object.defineProperty(document, 'hidden', { get: () => true, configurable: true });
+    window.requestAnimationFrame = () => 0; // never calls back, exactly as when hidden
+    const v = document.getElementById('reportVideo');
+    if (v.requestVideoFrameCallback) v.requestVideoFrameCallback = () => 0;
+  });
+
+  await page.click('#captureBtn');
+  await expect(page.locator('.shot')).toHaveCount(1, { timeout: 10_000 });
+
+  const shot = await page.evaluate(() => {
+    const f = window.__report.state().report.findings[0];
+    return { isJpeg: f.dataUrl.startsWith('data:image/jpeg'), len: f.dataUrl.length, w: f.width };
+  });
+  expect(shot.isJpeg).toBe(true);
+  expect(shot.w).toBe(640);
+  expect(shot.len).toBeGreaterThan(5000);
+});
